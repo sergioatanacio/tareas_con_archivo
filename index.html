@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mi Lista de Tareas Avanzada</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border-radius: 5px;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            max-width: 300px;
+            word-wrap: break-word;
+            z-index: 1000;
+        }
+        .notification.show {
+            opacity: 1;
+        }
+        .task-item {
+            cursor: move;
+        }
+        .task-item:focus-within {
+            outline: 2px solid #4299e1;
+        }
+        .task-complete {
+            text-decoration: line-through;
+            color: #718096;
+        }
+        .task-text {
+            white-space: pre-wrap;
+        }
+        .dragging {
+            opacity: 0.5;
+        }
+        .drag-over {
+            border-top: 2px solid #4299e1;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4 max-w-2xl">
+        <h1 class="text-2xl font-bold mb-4 text-center">Mi Lista de Tareas Avanzada</h1>
+        
+        <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+            <div class="mb-4">
+                <textarea id="taskInput" placeholder="Ingrese sus tareas (una o más por línea)" 
+                          class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-32"></textarea>
+            </div>
+            <div class="flex items-center justify-between mb-4">
+                <button onclick="addTasks(1)" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Agregar por cada línea
+                </button>
+                <button onclick="addTasks(2)" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Agregar por cada 2 líneas
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-white shadow-md rounded px-8 pt-6 pb-8">
+            <div class="flex justify-between mb-4">
+                <button onclick="copySelectedTasks()" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Copiar seleccionados
+                </button>
+                <button onclick="confirmDeleteSelected()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Eliminar seleccionados
+                </button>
+            </div>
+            <div class="flex justify-between mb-4">
+                <button onclick="exportTasks()" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Exportar tareas
+                </button>
+                <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importTasks(this.files)">
+                <button onclick="document.getElementById('importFile').click()" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Importar tareas
+                </button>
+            </div>
+            <ul id="taskList" class="space-y-2"></ul>
+        </div>
+    </div>
+
+    <div id="notification" class="notification"></div>
+
+    <script>
+        function addTasks(lineSkip) {
+            const taskInput = document.getElementById('taskInput');
+            const tasks = taskInput.value.split('\n'.repeat(lineSkip)).filter(task => task.trim() !== '');
+            
+            tasks.forEach(taskText => {
+                if (taskText.trim() !== '') {
+                    addTaskToList(taskText);
+                }
+            });
+            taskInput.value = '';
+        }
+
+        function addTaskToList(taskText, completed = false, selected = false) {
+            const taskList = document.getElementById('taskList');
+            const li = document.createElement('li');
+            li.className = 'task-item flex items-center justify-between border-b py-2';
+            li.draggable = true;
+            li.innerHTML = `
+                <div class="flex items-center flex-grow">
+                    <input type="checkbox" class="select-check mr-2" ${selected ? 'checked' : ''}>
+                    <button class="complete-btn mr-2 text-2xl" onclick="toggleComplete(this)">
+                        ${completed ? '☑' : '☐'}
+                    </button>
+                    <span class="task-text flex-grow ${completed ? 'task-complete' : ''}">${taskText}</span>
+                </div>
+                <div class="flex items-center">
+                    <button class="edit-btn text-blue-500 hover:text-blue-700 mr-2" onclick="editTask(this)">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <i class="fas fa-grip-vertical text-gray-400"></i>
+                </div>
+            `;
+            li.addEventListener('dblclick', function(e) {
+                if (e.target.classList.contains('task-text')) {
+                    editTask(this.querySelector('.edit-btn'));
+                }
+            });
+            setupDragAndDrop(li);
+            taskList.appendChild(li);
+        }
+
+        function setupDragAndDrop(li) {
+            li.addEventListener('dragstart', dragStart);
+            li.addEventListener('dragover', dragOver);
+            li.addEventListener('dragleave', dragLeave);
+            li.addEventListener('drop', drop);
+            li.addEventListener('dragend', dragEnd);
+        }
+
+        function dragStart(e) {
+            e.dataTransfer.setData('text/plain', e.target.id);
+            setTimeout(() => e.target.classList.add('dragging'), 0);
+        }
+
+        function dragOver(e) {
+            e.preventDefault();
+            if (!e.target.classList.contains('task-item')) {
+                return;
+            }
+            e.target.classList.add('drag-over');
+        }
+
+        function dragLeave(e) {
+            e.target.classList.remove('drag-over');
+        }
+
+        function drop(e) {
+            e.preventDefault();
+            const draggedItemId = e.dataTransfer.getData('text/plain');
+            const draggedItem = document.getElementById(draggedItemId);
+            if (!draggedItem) return;
+
+            let dropTarget = e.target;
+            while (dropTarget && !dropTarget.classList.contains('task-item')) {
+                dropTarget = dropTarget.parentNode;
+            }
+            if (!dropTarget || dropTarget === draggedItem) return;
+
+            const taskList = document.getElementById('taskList');
+            const draggedIndex = Array.from(taskList.children).indexOf(draggedItem);
+            const dropIndex = Array.from(taskList.children).indexOf(dropTarget);
+
+            if (draggedIndex < dropIndex) {
+                taskList.insertBefore(draggedItem, dropTarget.nextSibling);
+            } else {
+                taskList.insertBefore(draggedItem, dropTarget);
+            }
+
+            e.target.classList.remove('drag-over');
+        }
+
+        function dragEnd(e) {
+            e.target.classList.remove('dragging');
+            document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+        }
+
+        function toggleComplete(btn) {
+            const taskSpan = btn.parentElement.querySelector('.task-text');
+            const isCompleted = btn.textContent === '☑';
+            btn.textContent = isCompleted ? '☐' : '☑';
+            taskSpan.classList.toggle('task-complete', !isCompleted);
+        }
+
+        function editTask(btn) {
+            const taskItem = btn.closest('.task-item');
+            const taskSpan = taskItem.querySelector('.task-text');
+            const currentText = taskSpan.textContent;
+
+            const textarea = document.createElement('textarea');
+            textarea.value = currentText;
+            textarea.className = 'shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline';
+            textarea.style.minHeight = '60px';
+
+            taskSpan.replaceWith(textarea);
+            textarea.focus();
+
+            textarea.addEventListener('blur', function() {
+                saveEdit(this, taskSpan);
+            });
+
+            textarea.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    saveEdit(this, taskSpan);
+                }
+            });
+        }
+
+        function saveEdit(textarea, originalSpan) {
+            const newText = textarea.value.trim();
+            if (newText !== '') {
+                const newSpan = document.createElement('span');
+                newSpan.textContent = newText;
+                newSpan.className = originalSpan.className;
+                textarea.replaceWith(newSpan);
+            } else {
+                textarea.closest('.task-item').remove();
+            }
+        }
+
+        function copySelectedTasks() {
+            const selectedTasks = Array.from(document.querySelectorAll('#taskList li'))
+                .filter(li => li.querySelector('.select-check').checked)
+                .map(li => li.querySelector('.task-text').textContent);
+            
+            if (selectedTasks.length > 0) {
+                copyToClipboard(selectedTasks.join('\n\n'));
+            } else {
+                showNotification('No hay tareas seleccionadas para copiar');
+            }
+        }
+
+        function confirmDeleteSelected() {
+            const selectedTasks = document.querySelectorAll('#taskList li .select-check:checked');
+            if (selectedTasks.length > 0) {
+                const taskTexts = Array.from(selectedTasks).map(checkbox => 
+                    checkbox.closest('li').querySelector('.task-text').textContent
+                );
+                const confirmMessage = `¿Estás seguro de que quieres eliminar estas tareas?\n\n${taskTexts.join('\n')}`;
+                
+                if (confirm(confirmMessage)) {
+                    selectedTasks.forEach(checkbox => checkbox.closest('li').remove());
+                    showNotification(`Se eliminaron ${selectedTasks.length} tareas`);
+                }
+            } else {
+                showNotification('No hay tareas seleccionadas para eliminar');
+            }
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showNotification(`Copiado:\n"${text}"`);
+            }).catch(err => {
+                console.error('Error al copiar: ', err);
+                showNotification('Error al copiar al portapapeles');
+            });
+        }
+
+        function showNotification(text) {
+            const notification = document.getElementById('notification');
+            notification.textContent = text;
+            notification.classList.add('show');
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        function exportTasks() {
+            const tasks = Array.from(document.querySelectorAll('#taskList li')).map(li => ({
+                text: li.querySelector('.task-text').textContent,
+                completed: li.querySelector('.complete-btn').textContent === '☑',
+                selected: li.querySelector('.select-check').checked
+            }));
+            const tasksJSON = JSON.stringify(tasks, null, 2);
+            const blob = new Blob([tasksJSON], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'tareas_exportadas.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showNotification('Tareas exportadas con éxito');
+        }
+
+        function importTasks(files) {
+            if (files.length === 0) return;
+            const file = files[0];
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const tasks = JSON.parse(e.target.result);
+                    document.getElementById('taskList').innerHTML = '';
+                    tasks.forEach(task => addTaskToList(task.text, task.completed, task.selected));
+                    showNotification('Tareas importadas con éxito');
+                } catch (error) {
+                    console.error('Error al importar tareas:', error);
+                    showNotification('Error al importar tareas. Asegúrate de que el archivo sea válido.');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Asignar IDs únicos a las tareas existentes al cargar la página
+        window.onload = function() {
+            document.querySelectorAll('#taskList li').forEach((li, index) => {
+                li.id = 'task-' + index;
+                setupDragAndDrop(li);
+            });
+        };
+    </script>
+</body>
+</html>
